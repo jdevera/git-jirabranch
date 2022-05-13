@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+__DIR=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+# shellcheck source-path=SCRIPTDIR
+source "$__DIR/git-jirabranch"
+
+# shellcheck disable=SC2034
+DEPENDENCIES=(
+    git
+)
+# shellcheck disable=SC2034
+_DEPS_DOC=''
+
+command_new_branch "$@"

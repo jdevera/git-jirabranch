@@ -1,0 +1,10 @@
+password-source: keyring
+
+queries:
+  mine: |
+    assignee = currentUser() AND resolution = unresolved
+custom-commands:
+  - name: jirabranch
+    help: Display issues assigned to me (for git-jirabranch)
+    script: |-
+      {{jira}} list -t cleanlist -n mine

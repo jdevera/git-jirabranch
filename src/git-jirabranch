@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+
+DEPENDENCIES=(
+    jira
+    fzf
+    slugify
+    git
+    cut
+)
+
+read -r -d '' _DEPS_DOC <<EOD
+👪 Dependencies:
+
+- jira:    https://github.com/go-jira/jira
+- fzf:     https://github.com/junegunn/fzf
+- slugify: https://github.com/un33k/python-slugify
+- cut:     If you re missing this, you have bigger problems.
+- git:     If you re missing this, you have bigger problems.
+EOD
+
+## Keep these near the top as these are the functions that would most likely change in different setups
+## ----------------------------------------------------------------------------
+function get_issues() {
+    jira jirabranch
+}
+
+function slugify() {
+    command slugify --separator ' ' --stdin
+}
+
+function choose_issue() {
+    get_issues | fzf -0 -1
+}
+
+## ----------------------------------------------------------------------------
+
+function die() {
+    echo -e "🪦 $*" 1>&2
+    exit 1
+}
+
+function ensure_dependencies() {
+    local program
+    local missing_programs=()
+    for program in "${DEPENDENCIES[@]}"; do
+        type "$program" &>/dev/null ||
+            missing_programs+=("$program")
+    done
+    if ((${#missing_programs[@]})); then
+        die "Missing required program(s): ${missing_programs[*]}\n\n$_DEPS_DOC"
+    fi
+}
+
+## Git functions {{{
+function git_current_branch() {
+    command git rev-parse --abbrev-ref HEAD
+}
+
+function git_upstream() {
+    command git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null
+}
+
+function in_git_repo() {
+    git rev-parse &>/dev/null
+}
+
+function ensure_in_git_repo() {
+    in_git_repo || die "Not in a git repository"
+}
+
+## // Git functions }}}
+
+## ANSI functions {{{
+
+function ansi_color() {
+    local color
+    case "$1" in
+    black) color="\e[0;30m" ;;
+    red) color="\e[0;31m" ;;
+    green) color="\e[0;32m" ;;
+    brown) color="\e[0;33m" ;;
+    blue) color="\e[0;34m" ;;
+    purple) color="\e[0;35m" ;;
+    cyan) color="\e[0;36m" ;;
+    light_gray) color="\e[0;37m" ;;
+    dark_gray) color="\e[1;30m" ;;
+    light_red) color="\e[1;31m" ;;
+    light_green) color="\e[1;32m" ;;
+    yellow) color="\e[1;33m" ;;
+    light_blue) color="\e[1;34m" ;;
+    light_purple) color="\e[1;35m" ;;
+    light_cyan) color="\e[1;36m" ;;
+    white) color="\e[1;37m" ;;
+    none) color="\e[0m" ;;
+    esac
+    echo "$color"
+}
+
+function colorise() {
+    local OFF="\e[0m"
+    local color=$1
+    shift
+    echo "$(ansi_color "$color")$*$OFF"
+}
+
+## // ANSI functions }}}
+
+function command_new_branch() {
+    local branch=$1
+    [[ -n $branch ]] || die "Expects a branch name as parameter"
+
+    ensure_dependencies
+    ensure_in_git_repo
+
+    local starting_branch upstream
+    starting_branch=$(git_current_branch) || die "Cannot find current branch"
+    upstream=$(git_upstream)
+
+    # Create the branch
+    command git checkout -b "$branch" || die "Could not create branch $branch"
+
+    # Set the upstream branch
+    local upstream_message
+    if [[ -n $upstream ]]; then
+        command git branch --set-upstream-to="$upstream" HEAD || upstream=''
+        upstream_message=" with upstream set to $(colorise light_green "$upstream")"
+    fi
+
+    # Report!
+    echo -en "\n$(colorise yellow ) New branch $(colorise light_cyan "$branch") starting from "
+    echo -en "$(colorise light_purple "$starting_branch")"
+    echo -e "$upstream_message"
+}
+
+function ask_branch_name() {
+    local issue_line=$1
+    local issue_key issue_title prompt
+
+    issue_key="$(cut -d' ' -f1 <<<"$issue_line")"
+    issue_title="$(cut -d' ' -f2- <<<"$issue_line" | slugify --separator ' ' --stdin)"
+
+    read -r -d '' prompt <<EOP
+🌳 NEW BRANCH for $issue
+╭───────────────────────────────────────────╮
+│ Enter a name for the new branch.          │
+│ (spaces will be converted to underscores) │
+╰───────────────────────────────────────────╯
+Name >
+EOP
+    read -r -p "$prompt " -e -i "$issue_title" branch_name || return 1
+    branch_name=${branch_name// /_}
+
+    echo "$issue_key-$branch_name"
+}
+
+function command_jirabranch() {
+    ensure_dependencies
+    local issue branch
+    issue=$(choose_issue) || return 1
+    branch=$(ask_branch_name "$issue") || return 1
+    command_new_branch "$branch"
+}
+
+# If being sourced, return here
+return 0 2>/dev/null || true
+
+command_jirabranch "$@"
